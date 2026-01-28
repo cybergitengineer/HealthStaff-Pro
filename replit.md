@@ -70,3 +70,29 @@ Preferred communication style: Simple, everyday language.
 ### Development Tools
 - Replit-specific Vite plugins for development experience
 - TypeScript for type safety across full stack
+
+## Recent Changes
+
+**January 2026 - MVP Complete**
+- Implemented complete multi-tenant healthcare staffing platform
+- Added JWT authentication with role-based access control
+- Built professional healthcare-themed UI with dark mode support
+- Created 6-table database schema (tenants, users, workerProfiles, shifts, applications, assignments)
+- Added tenant ownership enforcement for all write operations
+- Implemented shift application workflow with automatic assignment creation
+- Added check-in/check-out functionality for assignments
+
+## Demo Accounts
+
+For testing, the following accounts are pre-seeded:
+
+| Role | Email | Password |
+|------|-------|----------|
+| Super Admin | admin@example.com | admin123 |
+| Facility Admin | facility@example.com | facility123 |
+| Healthcare Worker | worker@example.com | worker123 |
+
+## Environment Variables
+
+- `DATABASE_URL` - PostgreSQL connection string (required)
+- `SESSION_SECRET` - JWT signing secret (required for security)

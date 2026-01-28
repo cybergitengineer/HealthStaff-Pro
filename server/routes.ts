@@ -6,7 +6,10 @@ import jwt from "jsonwebtoken";
 import { loginSchema, registerSchema, insertShiftSchema, insertTenantSchema, insertApplicationSchema } from "@shared/schema";
 import { z } from "zod";
 
-const JWT_SECRET = process.env.SESSION_SECRET || "healthstaff-secret-key-2024";
+if (!process.env.SESSION_SECRET) {
+  throw new Error("SESSION_SECRET environment variable is required for security");
+}
+const JWT_SECRET = process.env.SESSION_SECRET;
 
 interface AuthRequest extends Request {
   user?: {
@@ -307,11 +310,20 @@ export async function registerRoutes(
 
   app.patch("/api/shifts/:id", authenticateToken, requireRole("SUPER_ADMIN", "FACILITY_ADMIN"), async (req: AuthRequest, res: Response) => {
     try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
       const { id } = req.params;
       const shift = await storage.getShift(id);
 
       if (!shift) {
         return res.status(404).json({ message: "Shift not found" });
+      }
+
+      // Tenant ownership check - FACILITY_ADMIN can only edit their own tenant's shifts
+      if (req.user.role === "FACILITY_ADMIN" && shift.tenantId !== req.user.tenantId) {
+        return res.status(403).json({ message: "Not authorized to edit this shift" });
       }
 
       // Check if shift can be edited (not after acceptance)
@@ -409,6 +421,14 @@ export async function registerRoutes(
         }
         if (status !== "withdrawn") {
           return res.status(400).json({ message: "Workers can only withdraw applications" });
+        }
+      }
+
+      // FACILITY_ADMIN can only manage applications for their own tenant's shifts
+      if (req.user.role === "FACILITY_ADMIN") {
+        const shift = await storage.getShift(application.shiftId);
+        if (!shift || shift.tenantId !== req.user.tenantId) {
+          return res.status(403).json({ message: "Not authorized to manage this application" });
         }
       }
 
@@ -518,12 +538,25 @@ export async function registerRoutes(
 
   app.post("/api/assignments/:id/approve", authenticateToken, requireRole("SUPER_ADMIN", "FACILITY_ADMIN"), async (req: AuthRequest, res: Response) => {
     try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
       const { id } = req.params;
       const assignment = await storage.getAssignment(id);
 
       if (!assignment) {
         return res.status(404).json({ message: "Assignment not found" });
       }
+
+      // FACILITY_ADMIN can only approve assignments for their own tenant's shifts
+      if (req.user.role === "FACILITY_ADMIN") {
+        const shift = await storage.getShift(assignment.shiftId);
+        if (!shift || shift.tenantId !== req.user.tenantId) {
+          return res.status(403).json({ message: "Not authorized to approve this assignment" });
+        }
+      }
+
       if (!assignment.checkOut) {
         return res.status(400).json({ message: "Worker must check out first" });
       }

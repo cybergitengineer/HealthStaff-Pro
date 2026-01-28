@@ -1,0 +1,185 @@
+ROLE & MINDSET
+
+You are a principal SaaS architect and senior full-stack engineer building a production-grade MVP for a multi-tenant, shift-based healthcare staffing platform.
+
+You are acting as a senior SaaS architect, full-stack engineer, and healthcare staffing systems designer. Your goal is to build a production-ready MVP for a multi-tenant, shift-based healthcare staffing platform designed to be:
+•	Used directly by the owner as a staffing agent
+•	Customized and sold/licensed to LTC facilities, homecare agencies, and small clinics
+•	Extended later without refactoring core architecture
+You must:
+•	Make strong architectural decisions
+•	Avoid placeholders unless unavoidable
+•	Avoid “TODO” unless critical
+•	Deliver a fully runnable app in one implementation pass with no follow-up questions.
+________________________________________
+CORE PRODUCT DEFINITION
+Build a multi-tenant web application for temporary, shift-based healthcare staffing, replacing unstructured job postings (WhatsApp/Facebook groups) with a structured, enforceable workflow.
+The platform supports:
+•	Facilities posting shifts
+•	Healthcare workers applying for and accepting shifts
+•	An admin/agent overseeing verification, pricing, disputes, and fulfillment
+•	Configuration per facility (rules, pricing, compliance)
+
+
+________________________________________
+NON-NEGOTIABLE CONSTRAINTS
+•	One Node.js app
+•	One server
+•	One database
+•	One run command
+•	App must run immediately on Replit by clicking Run
+Do not ask clarifying questions. Make reasonable assumptions and proceed.
+________________________________________
+TECH STACK (MANDATORY)
+•	Node.js
+•	Express
+•	Prisma ORM
+•	SQLite (for Replit reliability)
+•	React (Vite)
+•	Tailwind CSS
+•	JWT authentication
+Express must serve:
+•	/api/* → backend
+•	/ → React frontend build
+________________________________________
+PRODUCT SUMMARY
+Build a shift-based healthcare staffing platform for:
+•	LTC facilities
+•	Homecare agencies
+•	Small clinics
+The platform replaces chaotic job groups with structured shift fulfillment, allowing the platform owner to act as agent or SaaS provider.
+________________________________________
+USER ROLES
+1.	SUPER_ADMIN
+o	Approves tenants and workers
+o	Overrides assignments
+o	Sees all data
+2.	FACILITY_ADMIN
+o	Posts shifts
+o	Reviews applicants
+o	Confirms completion
+3.	WORKER
+o	Manages profile
+o	Applies for shifts
+o	Checks in/out
+Implement strict role-based access control.
+________________________________________
+MULTI-TENANCY (REQUIRED)
+•	Each facility is a tenant
+•	All tenant-specific data includes tenant_id
+•	Workers may work for multiple tenants
+•	Super admin sees everything
+________________________________________
+CORE DATA MODELS (IMPLEMENT FULLY)
+Tenant
+•	id
+•	name
+•	type (LTC | Homecare | Clinic)
+•	rules (JSON: cancellation window, auto-approve)
+•	pricing (JSON: markup, flat fee)
+•	status (pending | approved)
+User
+•	id
+•	role
+•	tenant_id (nullable)
+•	email
+•	password_hash
+•	status
+WorkerProfile
+•	user_id
+•	license_type
+•	license_expiry
+•	specialties (array)
+•	availability (JSON)
+•	reliability_score
+•	verified
+Shift
+•	id
+•	tenant_id
+•	role
+•	start_time
+•	end_time
+•	pay_rate
+•	urgency
+•	status (open | offered | filled | completed | cancelled)
+Application
+•	shift_id
+•	worker_id
+•	status
+Assignment
+•	shift_id
+•	worker_id
+•	check_in
+•	check_out
+•	approved
+•	payout_status
+________________________________________
+BUSINESS RULES (ENFORCE)
+•	Shifts cannot be edited after acceptance
+•	Late cancellations penalize reliability
+•	No-shows heavily penalized
+•	Only verified workers see shifts
+•	Workers see only shifts matching:
+o	license
+o	availability
+o	tenant eligibility
+________________________________________
+REQUIRED WORKFLOWS (END-TO-END)
+Facility
+1.	Post shift
+2.	View ranked applicants
+3.	Offer shift
+4.	Confirm completion
+Worker
+1.	Register
+2.	Upload profile
+3.	Apply
+4.	Accept
+5.	Check in/out
+Admin
+•	Approve tenants/workers
+•	Assign manually if needed
+________________________________________
+UI REQUIREMENTS
+•	Clean, minimal, professional
+•	No UI libraries beyond Tailwind
+•	Required pages:
+o	Login
+o	Admin dashboard
+o	Facility dashboard
+o	Worker dashboard
+o	Shift list
+o	Applications
+Function > aesthetics.
+________________________________________
+REPLIT OPTIMIZATION (CRITICAL)
+•	SQLite database
+•	Prisma migrate + seed runs automatically on start
+•	Fixed port
+•	.env.example included
+•	Default seeded users:
+o	admin@example.com / admin123
+o	facility@example.com / facility123
+o	worker@example.com / worker123
+________________________________________
+PROJECT OUTPUT (MANDATORY)
+You must produce:
+1.	Full backend
+2.	Full frontend
+3.	Prisma schema
+4.	Seed script
+5.	.replit config
+6.	README with run instructions
+No TODOs. No placeholders.
+________________________________________
+SUCCESS CRITERIA
+I can:
+•	Click Run
+•	Log in as each role
+•	Post and fill a shift
+•	Use this as a sellable demo for LTCs
+________________________________________
+FINAL INSTRUCTION
+Build this once, cleanly, and decisively.
+Assume this system will be sold to real healthcare organizations.
+

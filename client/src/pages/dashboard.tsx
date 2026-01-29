@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import {
   Calendar,
   Users,
@@ -72,6 +73,7 @@ function StatCard({
 function AdminDashboard() {
   const { user } = useAuth();
   const token = localStorage.getItem("token");
+  const [, setLocation] = useLocation();
 
   const { data: stats, isLoading } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats"],
@@ -184,15 +186,27 @@ function AdminDashboard() {
             <CardDescription>Common admin tasks</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            <button className="w-full flex items-center gap-3 p-3 rounded-md text-left hover-elevate active-elevate-2 bg-muted/50">
+            <button 
+              onClick={() => setLocation("/tenants")}
+              className="w-full flex items-center gap-3 p-3 rounded-md text-left hover-elevate active-elevate-2 bg-muted/50"
+              data-testid="button-quick-tenants"
+            >
               <Building2 className="h-4 w-4 text-primary" />
               <span className="text-sm">Review tenant applications</span>
             </button>
-            <button className="w-full flex items-center gap-3 p-3 rounded-md text-left hover-elevate active-elevate-2 bg-muted/50">
+            <button 
+              onClick={() => setLocation("/workers")}
+              className="w-full flex items-center gap-3 p-3 rounded-md text-left hover-elevate active-elevate-2 bg-muted/50"
+              data-testid="button-quick-workers"
+            >
               <Users className="h-4 w-4 text-primary" />
               <span className="text-sm">Verify worker licenses</span>
             </button>
-            <button className="w-full flex items-center gap-3 p-3 rounded-md text-left hover-elevate active-elevate-2 bg-muted/50">
+            <button 
+              onClick={() => setLocation("/assignments")}
+              className="w-full flex items-center gap-3 p-3 rounded-md text-left hover-elevate active-elevate-2 bg-muted/50"
+              data-testid="button-quick-assignments"
+            >
               <AlertCircle className="h-4 w-4 text-primary" />
               <span className="text-sm">Handle disputes</span>
             </button>

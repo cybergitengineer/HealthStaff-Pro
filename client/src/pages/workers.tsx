@@ -29,11 +29,13 @@ function WorkerCard({
   worker,
   onVerify,
   onSuspend,
+  onViewProfile,
   isPending,
 }: {
   worker: UserWithProfile;
   onVerify?: (id: string) => void;
   onSuspend?: (id: string) => void;
+  onViewProfile?: (worker: UserWithProfile) => void;
   isPending: boolean;
 }) {
   const getStatusBadge = () => {
@@ -85,7 +87,12 @@ function WorkerCard({
         )}
 
         <div className="flex items-center justify-between gap-2 pt-2 border-t">
-          <Button variant="outline" size="sm">
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => onViewProfile?.(worker)}
+            data-testid={`button-view-profile-${worker.id}`}
+          >
             View Profile
           </Button>
           {worker.workerProfile && !worker.workerProfile.verified && worker.status !== "suspended" && (
@@ -111,6 +118,7 @@ export default function WorkersPage() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [selectedWorker, setSelectedWorker] = useState<UserWithProfile | null>(null);
 
   const { data: workers, isLoading } = useQuery<UserWithProfile[]>({
     queryKey: ["/api/workers"],
@@ -254,6 +262,7 @@ export default function WorkersPage() {
                     worker={worker} 
                     onVerify={(id) => verifyMutation.mutate(id)}
                     onSuspend={(id) => suspendMutation.mutate(id)}
+                    onViewProfile={setSelectedWorker}
                     isPending={verifyMutation.isPending || suspendMutation.isPending}
                   />
                 ))}
@@ -270,6 +279,7 @@ export default function WorkersPage() {
                     key={worker.id} 
                     worker={worker} 
                     onSuspend={(id) => suspendMutation.mutate(id)}
+                    onViewProfile={setSelectedWorker}
                     isPending={suspendMutation.isPending}
                   />
                 ))}
@@ -278,6 +288,127 @@ export default function WorkersPage() {
           )}
         </div>
       </div>
+
+      {/* Worker Profile Dialog */}
+      <Dialog open={!!selectedWorker} onOpenChange={(open) => !open && setSelectedWorker(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Worker Profile</DialogTitle>
+          </DialogHeader>
+          {selectedWorker && (
+            <div className="space-y-6">
+              <div className="flex items-start gap-4">
+                <Avatar className="h-16 w-16">
+                  <AvatarFallback className="bg-primary/10 text-primary text-lg">
+                    {selectedWorker.firstName?.[0]}{selectedWorker.lastName?.[0]}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="space-y-1">
+                  <h3 className="text-lg font-semibold">
+                    {selectedWorker.firstName} {selectedWorker.lastName}
+                  </h3>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Mail className="h-4 w-4" />
+                    {selectedWorker.email}
+                  </div>
+                  {selectedWorker.phone && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Phone className="h-4 w-4" />
+                      {selectedWorker.phone}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Status</p>
+                  {selectedWorker.status === "suspended" ? (
+                    <Badge variant="destructive">Suspended</Badge>
+                  ) : selectedWorker.workerProfile?.verified ? (
+                    <Badge className="bg-green-500/10 text-green-600 border-green-500/30">Verified</Badge>
+                  ) : (
+                    <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30">Pending</Badge>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">License Type</p>
+                  <Badge variant="outline">{selectedWorker.workerProfile?.licenseType || "N/A"}</Badge>
+                </div>
+              </div>
+
+              {selectedWorker.workerProfile && (
+                <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Reliability Score</p>
+                    <div className="flex items-center gap-2">
+                      <Star className="h-4 w-4 text-yellow-500" />
+                      <span className="font-semibold">{selectedWorker.workerProfile.reliabilityScore ?? 100}%</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">License Number</p>
+                    <span className="font-semibold">{selectedWorker.workerProfile.licenseNumber || "Not provided"}</span>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">License Expiry</p>
+                    <span className="font-semibold">{format(new Date(selectedWorker.workerProfile.licenseExpiry), "MMM d, yyyy")}</span>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Specialties</p>
+                    <span className="font-semibold text-sm">{selectedWorker.workerProfile.specialties?.join(", ") || "General"}</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-4 border-t space-y-1">
+                <p className="text-xs text-muted-foreground">Member Since</p>
+                <div className="flex items-center gap-2 text-sm">
+                  <Calendar className="h-4 w-4" />
+                  {format(new Date(selectedWorker.createdAt), "MMMM d, yyyy")}
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-4 border-t">
+                {selectedWorker.workerProfile && !selectedWorker.workerProfile.verified && selectedWorker.status !== "suspended" && (
+                  <Button 
+                    onClick={() => {
+                      verifyMutation.mutate(selectedWorker.id);
+                      setSelectedWorker(null);
+                    }}
+                    disabled={verifyMutation.isPending}
+                  >
+                    <Award className="h-4 w-4 mr-1" /> Verify Worker
+                  </Button>
+                )}
+                {selectedWorker.status !== "suspended" && selectedWorker.workerProfile?.verified && (
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      suspendMutation.mutate(selectedWorker.id);
+                      setSelectedWorker(null);
+                    }}
+                    disabled={suspendMutation.isPending}
+                  >
+                    <XCircle className="h-4 w-4 mr-1" /> Suspend Worker
+                  </Button>
+                )}
+                {selectedWorker.status === "suspended" && (
+                  <Button 
+                    onClick={() => {
+                      verifyMutation.mutate(selectedWorker.id);
+                      setSelectedWorker(null);
+                    }}
+                    disabled={verifyMutation.isPending}
+                  >
+                    Reactivate Worker
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

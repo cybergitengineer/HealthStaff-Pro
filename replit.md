@@ -97,14 +97,20 @@ For testing, the following accounts are pre-seeded:
 - `DATABASE_URL` - PostgreSQL connection string (required)
 - `SESSION_SECRET` - JWT signing secret (required for security)
 
-## Planned Features
+## SMS Notifications (Courier Integration)
 
-### SMS Notifications (Not Yet Implemented)
-- **Purpose**: Notify workers about new shifts and developments via text message
-- **Requires**: Twilio integration (Account SID, Auth Token, Phone Number)
-- **Status**: Planned - awaiting Twilio credentials from user
-- **Notes**: Workers already have phone numbers stored in their profiles; once Twilio is configured, SMS can be sent for:
-  - New shift postings matching worker skills
-  - Application status updates (accepted/rejected)
-  - Assignment reminders
-  - Shift cancellations or changes
+SMS notifications are enabled via Courier to keep workers informed about shifts and applications.
+
+### Triggers
+- **New Shift Posted**: All verified workers receive SMS about new available shifts
+- **Application Accepted**: Worker receives SMS confirmation when their application is accepted
+- **Application Rejected**: Worker receives SMS notification when their application is not selected
+
+### Configuration
+- **Provider**: Courier (courier.com)
+- **API Key**: Stored in `COURIER_API_KEY` environment secret
+- **Note**: You must configure an SMS provider (like Twilio) in your Courier dashboard for messages to be delivered
+
+### Implementation
+- Notification service: `server/notifications.ts`
+- Integrated into shift creation and application processing routes

@@ -5,6 +5,8 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { loginSchema, registerSchema, insertShiftSchema, insertTenantSchema, insertApplicationSchema } from "@shared/schema";
 import { z } from "zod";
+import { notifyWorkerNewShift, notifyApplicationAccepted, notifyApplicationRejected } from "./notifications";
+import { format } from "date-fns";
 
 if (!process.env.SESSION_SECRET) {
   throw new Error("SESSION_SECRET environment variable is required for security");
@@ -406,6 +408,34 @@ export async function registerRoutes(
         tenantId,
         status: "open",
       });
+
+      // Send SMS notifications to verified workers about the new shift
+      // Note: In this healthcare staffing platform, workers are independent contractors
+      // who can apply to shifts at ANY facility, so all verified workers are notified.
+      // This is intentional - workers are NOT tied to specific tenants.
+      try {
+        const workers = await storage.getWorkers();
+        const verifiedWorkers = workers.filter(w => w.workerProfile?.verified && w.phone);
+        const tenant = await storage.getTenant(tenantId);
+        
+        for (const worker of verifiedWorkers) {
+          if (worker.phone) {
+            notifyWorkerNewShift(
+              { phone: worker.phone, firstName: worker.firstName },
+              {
+                title: shift.title,
+                facility: tenant?.name || "Healthcare Facility",
+                date: format(new Date(shift.date), "MMM d, yyyy"),
+                rate: String(shift.hourlyRate),
+              }
+            ).catch(err => console.error("[SMS] Error notifying worker:", err));
+          }
+        }
+        console.log(`[SMS] Queued notifications for ${verifiedWorkers.length} verified workers about new shift`);
+      } catch (notifyError) {
+        console.error("[SMS] Error sending new shift notifications:", notifyError);
+      }
+
       res.json(shift);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -542,6 +572,26 @@ export async function registerRoutes(
 
       const updated = await storage.updateApplication(id, { status });
 
+      // Handle explicit rejection by admin (not from auto-rejection during acceptance)
+      if (status === "rejected") {
+        try {
+          const shift = await storage.getShift(application.shiftId);
+          const worker = await storage.getUserWithProfile(application.workerId);
+          if (shift && worker && worker.phone) {
+            const tenant = await storage.getTenant(shift.tenantId);
+            notifyApplicationRejected(
+              { phone: worker.phone, firstName: worker.firstName },
+              {
+                title: shift.title,
+                facility: tenant?.name || "Healthcare Facility",
+              }
+            ).catch(err => console.error("[SMS] Error notifying rejected worker:", err));
+          }
+        } catch (notifyError) {
+          console.error("[SMS] Error sending explicit rejection notification:", notifyError);
+        }
+      }
+
       // If accepted, create assignment and update shift status (production-safe)
       if (status === "accepted") {
         // Ensure shift is still open (prevent double fill / race conditions)
@@ -574,11 +624,46 @@ export async function registerRoutes(
         // Mark shift filled
         await storage.updateShift(application.shiftId, { status: "filled" });
 
+        // Send SMS notification to accepted worker
+        try {
+          const worker = await storage.getUserWithProfile(application.workerId);
+          const tenant = await storage.getTenant(shift.tenantId);
+          if (worker && worker.phone) {
+            notifyApplicationAccepted(
+              { phone: worker.phone, firstName: worker.firstName },
+              {
+                title: shift.title,
+                facility: tenant?.name || "Healthcare Facility",
+                date: format(new Date(shift.date), "MMM d, yyyy"),
+              }
+            ).catch(err => console.error("[SMS] Error notifying accepted worker:", err));
+          }
+        } catch (notifyError) {
+          console.error("[SMS] Error sending acceptance notification:", notifyError);
+        }
+
         // Reject all other pending applications for this shift (fetch applications scoped to shift)
         const shiftApps = await storage.getApplications(req.user.id, "SUPER_ADMIN");
         for (const app of shiftApps) {
           if (app.shiftId === application.shiftId && app.id !== id && app.status === "pending") {
             await storage.updateApplication(app.id, { status: "rejected" });
+            
+            // Send SMS notification to rejected workers
+            try {
+              const rejectedWorker = await storage.getUserWithProfile(app.workerId);
+              const tenant = await storage.getTenant(shift.tenantId);
+              if (rejectedWorker && rejectedWorker.phone) {
+                notifyApplicationRejected(
+                  { phone: rejectedWorker.phone, firstName: rejectedWorker.firstName },
+                  {
+                    title: shift.title,
+                    facility: tenant?.name || "Healthcare Facility",
+                  }
+                ).catch(err => console.error("[SMS] Error notifying rejected worker:", err));
+              }
+            } catch (notifyError) {
+              console.error("[SMS] Error sending rejection notification:", notifyError);
+            }
           }
         }
       }

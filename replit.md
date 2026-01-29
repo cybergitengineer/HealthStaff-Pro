@@ -96,3 +96,15 @@ For testing, the following accounts are pre-seeded:
 
 - `DATABASE_URL` - PostgreSQL connection string (required)
 - `SESSION_SECRET` - JWT signing secret (required for security)
+
+## Planned Features
+
+### SMS Notifications (Not Yet Implemented)
+- **Purpose**: Notify workers about new shifts and developments via text message
+- **Requires**: Twilio integration (Account SID, Auth Token, Phone Number)
+- **Status**: Planned - awaiting Twilio credentials from user
+- **Notes**: Workers already have phone numbers stored in their profiles; once Twilio is configured, SMS can be sent for:
+  - New shift postings matching worker skills
+  - Application status updates (accepted/rejected)
+  - Assignment reminders
+  - Shift cancellations or changes

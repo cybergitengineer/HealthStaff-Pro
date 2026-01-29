@@ -291,9 +291,10 @@ export default function WorkersPage() {
 
       {/* Worker Profile Dialog */}
       <Dialog open={!!selectedWorker} onOpenChange={(open) => !open && setSelectedWorker(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg" aria-describedby="worker-profile-description">
           <DialogHeader>
             <DialogTitle>Worker Profile</DialogTitle>
+            <p id="worker-profile-description" className="sr-only">Detailed profile information for the selected healthcare worker</p>
           </DialogHeader>
           {selectedWorker && (
             <div className="space-y-6">
@@ -377,6 +378,7 @@ export default function WorkersPage() {
                       setSelectedWorker(null);
                     }}
                     disabled={verifyMutation.isPending}
+                    data-testid="button-verify-worker"
                   >
                     <Award className="h-4 w-4 mr-1" /> Verify Worker
                   </Button>
@@ -389,6 +391,7 @@ export default function WorkersPage() {
                       setSelectedWorker(null);
                     }}
                     disabled={suspendMutation.isPending}
+                    data-testid="button-suspend-worker"
                   >
                     <XCircle className="h-4 w-4 mr-1" /> Suspend Worker
                   </Button>
@@ -400,6 +403,7 @@ export default function WorkersPage() {
                       setSelectedWorker(null);
                     }}
                     disabled={verifyMutation.isPending}
+                    data-testid="button-reactivate-worker"
                   >
                     Reactivate Worker
                   </Button>

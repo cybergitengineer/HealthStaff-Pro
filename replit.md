@@ -76,6 +76,7 @@ Preferred communication style: Simple, everyday language.
 **January 2026 - MVP Complete**
 - Implemented complete multi-tenant healthcare staffing platform
 - Added JWT authentication with role-based access control
+- Added self-registration for new users (workers and facility admins)
 - Built professional healthcare-themed UI with dark mode support
 - Created 6-table database schema (tenants, users, workerProfiles, shifts, applications, assignments)
 - Added tenant ownership enforcement for all write operations

@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import NotFound from "@/pages/not-found";
 import LoginPage from "@/pages/login";
+import RegisterPage from "@/pages/register";
 import DashboardPage from "@/pages/dashboard";
 import ShiftsPage from "@/pages/shifts";
 import ApplicationsPage from "@/pages/applications";
@@ -59,6 +60,9 @@ function Router() {
       </Route>
       <Route path="/login">
         <PublicRoute component={LoginPage} />
+      </Route>
+      <Route path="/register">
+        <PublicRoute component={RegisterPage} />
       </Route>
       <Route path="/dashboard">
         <ProtectedRoute component={DashboardPage} />

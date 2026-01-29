@@ -200,8 +200,19 @@ function CreateShiftDialog({ tenants }: { tenants: Tenant[] }) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (user?.role === "SUPER_ADMIN" && !formData.tenantId) {
+      toast({
+        title: "Select a facility",
+        description: "Super Admins must assign a facility to the shift.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     createMutation.mutate(formData);
   };
+
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

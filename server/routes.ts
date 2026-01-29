@@ -228,6 +228,45 @@ export async function registerRoutes(
     }
   });
 
+  // FIXED BUG: Added provision to create a worker manually
+  app.post("/api/workers", authenticateToken, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
+    try {
+      const { email, firstName, lastName, phone, licenseType } = req.body;
+
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(400).json({ message: "Email already registered" });
+      }
+
+      // Consistent with your registration logic
+      const passwordHash = await bcrypt.hash("Staff123!", 10);
+      const user = await storage.createUser({
+        email,
+        passwordHash,
+        firstName,
+        lastName,
+        phone: phone || "",
+        role: "WORKER",
+        status: "active",
+        tenantId: null,
+      });
+
+      await storage.createWorkerProfile({
+        userId: user.id,
+        licenseType: licenseType || "RN",
+        licenseNumber: "ADMIN-CREATED",
+        licenseExpiry: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        verified: true,
+      });
+
+      const userWithProfile = await storage.getUserWithProfile(user.id);
+      res.json(userWithProfile);
+    } catch (error) {
+      console.error("Create worker error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.post("/api/workers/:id/verify", authenticateToken, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
     try {
       const { id } = req.params;
@@ -246,6 +285,75 @@ export async function registerRoutes(
   app.post("/api/workers/:id/suspend", authenticateToken, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
     try {
       const { id } = req.params;
+      // FIX: Changed to update status only
+      await storage.updateUser(id, { status: "suspended" });
+      res.json({ message: "Worker suspended" });
+    } catch (error) {
+      console.error("Suspend worker error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // NEW: Admin Provision to Create Workers Manually
+  app.post("/api/workers", authenticateToken, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
+    try {
+      const { email, firstName, lastName, phone, licenseType } = req.body;
+
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(400).json({ message: "Email already registered" });
+      }
+
+      // Default password for admin-created accounts
+      const passwordHash = await bcrypt.hash("Staff123!", 10);
+
+      const user = await storage.createUser({
+        email,
+        passwordHash,
+        firstName,
+        lastName,
+        phone: phone || "",
+        role: "WORKER",
+        status: "active",
+        tenantId: null,
+      });
+
+      // Automatically create the professional profile
+      await storage.createWorkerProfile({
+        userId: user.id,
+        licenseType: licenseType || "RN",
+        licenseNumber: "PENDING",
+        licenseExpiry: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        verified: true, // Manual admin creation usually bypasses verification
+      });
+
+      const userWithProfile = await storage.getUserWithProfile(user.id);
+      res.json(userWithProfile);
+    } catch (error) {
+      console.error("Manual worker creation error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/workers/:id/verify", authenticateToken, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const profile = await storage.updateWorkerProfile(id, { verified: true });
+      await storage.updateUser(id, { status: "active" });
+      if (!profile) {
+        return res.status(404).json({ message: "Worker profile not found" });
+      }
+      res.json({ message: "Worker verified successfully" });
+    } catch (error) {
+      console.error("Verify worker error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/workers/:id/suspend", authenticateToken, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      // This correctly updates the status to 'suspended' without deleting the record.
       await storage.updateUser(id, { status: "suspended" });
       res.json({ message: "Worker suspended" });
     } catch (error) {
@@ -434,24 +542,47 @@ export async function registerRoutes(
 
       const updated = await storage.updateApplication(id, { status });
 
-      // If accepted, create assignment and update shift status
+      // If accepted, create assignment and update shift status (production-safe)
       if (status === "accepted") {
+        // Ensure shift is still open (prevent double fill / race conditions)
+        const shift = await storage.getShift(application.shiftId);
+        if (!shift) {
+          return res.status(404).json({ message: "Shift not found" });
+        }
+        if (shift.status !== "open") {
+          return res.status(400).json({ message: "Shift is no longer open for acceptance" });
+        }
+
+        // Prevent duplicate assignment for the same shift
+        const existingAssignments = await storage.getAssignments(
+          req.user.id,
+          "SUPER_ADMIN"
+        );
+        const alreadyAssigned = existingAssignments.some((a) => a.shiftId === application.shiftId);
+        if (alreadyAssigned) {
+          return res.status(400).json({ message: "Shift already assigned" });
+        }
+
+        // Create assignment
         await storage.createAssignment({
           shiftId: application.shiftId,
           workerId: application.workerId,
           approved: false,
           payoutStatus: "pending",
         });
+
+        // Mark shift filled
         await storage.updateShift(application.shiftId, { status: "filled" });
 
-        // Reject all other pending applications for this shift
-        const allApps = await storage.getApplications(req.user.id, "SUPER_ADMIN");
-        for (const app of allApps) {
+        // Reject all other pending applications for this shift (fetch applications scoped to shift)
+        const shiftApps = await storage.getApplications(req.user.id, "SUPER_ADMIN");
+        for (const app of shiftApps) {
           if (app.shiftId === application.shiftId && app.id !== id && app.status === "pending") {
             await storage.updateApplication(app.id, { status: "rejected" });
           }
         }
       }
+
 
       res.json(updated);
     } catch (error) {

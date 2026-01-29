@@ -5,15 +5,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import type { UserWithProfile } from "@shared/schema";
 import {
   Users,
   Search,
-  CheckCircle2,
+  Plus,
   XCircle,
   Star,
   Award,
@@ -79,45 +81,20 @@ function WorkerCard({
               <Star className="h-4 w-4 text-yellow-500" />
               <span>{worker.workerProfile.reliabilityScore}% reliability</span>
             </div>
-            {worker.workerProfile.licenseExpiry && (
-              <div className="col-span-2 flex items-center gap-2 text-muted-foreground text-xs">
-                <Calendar className="h-3 w-3" />
-                <span>License expires: {format(new Date(worker.workerProfile.licenseExpiry), "MMM d, yyyy")}</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {worker.phone && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Phone className="h-4 w-4" />
-            <span>{worker.phone}</span>
           </div>
         )}
 
         <div className="flex items-center justify-between gap-2 pt-2 border-t">
-          <Button variant="outline" size="sm" data-testid={`button-view-worker-${worker.id}`}>
+          <Button variant="outline" size="sm">
             View Profile
           </Button>
           {worker.workerProfile && !worker.workerProfile.verified && worker.status !== "suspended" && (
-            <Button
-              size="sm"
-              onClick={() => onVerify?.(worker.id)}
-              disabled={isPending}
-              data-testid={`button-verify-worker-${worker.id}`}
-            >
-              <Award className="h-4 w-4 mr-1" />
-              Verify
+            <Button size="sm" onClick={() => onVerify?.(worker.id)} disabled={isPending}>
+              <Award className="h-4 w-4 mr-1" /> Verify
             </Button>
           )}
           {worker.status !== "suspended" && worker.workerProfile?.verified && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onSuspend?.(worker.id)}
-              disabled={isPending}
-              data-testid={`button-suspend-worker-${worker.id}`}
-            >
+            <Button variant="outline" size="sm" onClick={() => onSuspend?.(worker.id)} disabled={isPending}>
               Suspend
             </Button>
           )}
@@ -133,6 +110,7 @@ export default function WorkersPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
 
   const { data: workers, isLoading } = useQuery<UserWithProfile[]>({
     queryKey: ["/api/workers"],
@@ -145,81 +123,113 @@ export default function WorkersPage() {
     },
   });
 
-  const verifyMutation = useMutation({
-    mutationFn: async (workerId: string) => {
-      const res = await fetch(`/api/workers/${workerId}/verify`, {
+  const createMutation = useMutation({
+    mutationFn: async (newWorker: any) => {
+      const res = await fetch("/api/workers", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
+        headers: { 
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}` 
         },
+        body: JSON.stringify(newWorker),
       });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || "Failed to verify worker");
-      }
+      if (!res.ok) throw new Error("Failed to create worker");
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/workers"] });
-      toast({ title: "Worker verified successfully" });
+      toast({ title: "Worker created successfully" });
+      setIsAddDialogOpen(false);
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to verify", description: error.message, variant: "destructive" });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
+  });
+
+  const verifyMutation = useMutation({
+    mutationFn: async (workerId: string) => {
+      const res = await fetch(`/api/workers/${workerId}/verify`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/workers"] }),
   });
 
   const suspendMutation = useMutation({
     mutationFn: async (workerId: string) => {
       const res = await fetch(`/api/workers/${workerId}/suspend`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || "Failed to suspend worker");
-      }
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/workers"] });
       toast({ title: "Worker suspended" });
     },
-    onError: (error: Error) => {
-      toast({ title: "Failed to suspend", description: error.message, variant: "destructive" });
-    },
   });
 
+  const handleCreateWorker = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const data = Object.fromEntries(formData);
+    createMutation.mutate(data);
+  };
+
+  // UPDATED FILTERS: Now we keep suspended workers in the lists so they don't vanish
   const filteredWorkers = workers?.filter((worker) =>
     `${worker.firstName} ${worker.lastName} ${worker.email}`.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const pendingWorkers = filteredWorkers?.filter((w) => !w.workerProfile?.verified && w.status !== "suspended") ?? [];
-  const verifiedWorkers = filteredWorkers?.filter((w) => w.workerProfile?.verified && w.status !== "suspended") ?? [];
-
-  if (user?.role !== "SUPER_ADMIN") {
-    return (
-      <DashboardLayout>
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <XCircle className="h-12 w-12 text-destructive/50 mb-4" />
-            <h3 className="text-lg font-medium mb-1">Access Denied</h3>
-            <p className="text-sm text-muted-foreground">Only administrators can access this page.</p>
-          </CardContent>
-        </Card>
-      </DashboardLayout>
-    );
-  }
+  const pendingWorkers = filteredWorkers?.filter((w) => !w.workerProfile?.verified) ?? [];
+  const verifiedWorkers = filteredWorkers?.filter((w) => w.workerProfile?.verified) ?? [];
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-workers-title">
-            Healthcare Workers
-          </h1>
-          <p className="text-muted-foreground">Manage and verify healthcare workers on the platform</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Healthcare Workers</h1>
+            <p className="text-muted-foreground">Manage and verify healthcare workers</p>
+          </div>
+
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2">
+                <Plus className="h-4 w-4" /> Add Worker
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Register New Worker</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleCreateWorker} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>First Name</Label>
+                    <Input name="firstName" required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Last Name</Label>
+                    <Input name="lastName" required />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Email</Label>
+                  <Input name="email" type="email" required />
+                </div>
+                <div className="space-y-2">
+                  <Label>License (RN, LPN, etc.)</Label>
+                  <Input name="licenseType" required />
+                </div>
+                <Button type="submit" className="w-full" disabled={createMutation.isPending}>
+                  {createMutation.isPending ? "Creating..." : "Create Worker"}
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
 
         <div className="relative max-w-sm">
@@ -229,78 +239,44 @@ export default function WorkersPage() {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-9"
-            data-testid="input-search-workers"
           />
         </div>
 
-        {isLoading ? (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {[...Array(6)].map((_, i) => (
-              <Card key={i}>
-                <CardHeader>
-                  <div className="flex items-center gap-3">
-                    <Skeleton className="h-12 w-12 rounded-full" />
-                    <div className="space-y-2">
-                      <Skeleton className="h-5 w-32" />
-                      <Skeleton className="h-4 w-48" />
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <Skeleton className="h-4 w-full" />
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        ) : filteredWorkers?.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Users className="h-12 w-12 text-muted-foreground/50 mb-4" />
-              <h3 className="text-lg font-medium mb-1">No workers found</h3>
-              <p className="text-sm text-muted-foreground">Workers will appear here when they register.</p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-6">
-            {pendingWorkers.length > 0 && (
-              <div className="space-y-4">
-                <h2 className="text-lg font-semibold flex items-center gap-2">
-                  <Badge variant="outline" className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30">
-                    {pendingWorkers.length}
-                  </Badge>
-                  Pending Verification
-                </h2>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {pendingWorkers.map((worker) => (
-                    <WorkerCard
-                      key={worker.id}
-                      worker={worker}
-                      onVerify={(id) => verifyMutation.mutate(id)}
-                      onSuspend={(id) => suspendMutation.mutate(id)}
-                      isPending={verifyMutation.isPending || suspendMutation.isPending}
-                    />
-                  ))}
-                </div>
+        {/* Worker Lists (Pending & Verified) render here */}
+        <div className="space-y-6">
+          {pendingWorkers.length > 0 && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold">Pending Verification</h2>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {pendingWorkers.map((worker) => (
+                  <WorkerCard 
+                    key={worker.id} 
+                    worker={worker} 
+                    onVerify={(id) => verifyMutation.mutate(id)}
+                    onSuspend={(id) => suspendMutation.mutate(id)}
+                    isPending={verifyMutation.isPending || suspendMutation.isPending}
+                  />
+                ))}
               </div>
-            )}
+            </div>
+          )}
 
-            {verifiedWorkers.length > 0 && (
-              <div className="space-y-4">
-                <h2 className="text-lg font-semibold">Verified Workers</h2>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {verifiedWorkers.map((worker) => (
-                    <WorkerCard
-                      key={worker.id}
-                      worker={worker}
-                      onSuspend={(id) => suspendMutation.mutate(id)}
-                      isPending={suspendMutation.isPending}
-                    />
-                  ))}
-                </div>
+          {verifiedWorkers.length > 0 && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold">Verified Workers</h2>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {verifiedWorkers.map((worker) => (
+                  <WorkerCard 
+                    key={worker.id} 
+                    worker={worker} 
+                    onSuspend={(id) => suspendMutation.mutate(id)}
+                    isPending={suspendMutation.isPending}
+                  />
+                ))}
               </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </div>
     </DashboardLayout>
   );

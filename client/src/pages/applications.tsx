@@ -23,10 +23,8 @@ import {
   Calendar,
   Clock,
   Building2,
-  User,
   CheckCircle2,
   XCircle,
-  Loader2,
   Star,
   Award,
 } from "lucide-react";
@@ -69,15 +67,16 @@ function ApplicationCard({
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-2 flex-wrap">
             <div className="space-y-1 flex-1 min-w-0">
-              <CardTitle className="text-base truncate">{application.shift?.title}</CardTitle>
+              <CardTitle className="text-base truncate">{application.shift?.title ?? "Shift"}</CardTitle>
               <CardDescription className="flex items-center gap-1 text-xs">
                 <Building2 className="h-3 w-3" />
-                {isWorker ? "Applied" : `${application.worker?.firstName} ${application.worker?.lastName}`}
+                {isWorker ? "Applied" : `${application.worker?.firstName ?? ""} ${application.worker?.lastName ?? ""}`}
               </CardDescription>
             </div>
             {getStatusBadge(application.status)}
           </div>
         </CardHeader>
+
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="flex items-center gap-2 text-muted-foreground">
@@ -118,6 +117,7 @@ function ApplicationCard({
             <Button variant="outline" size="sm" onClick={() => setShowDetails(true)} data-testid={`button-view-application-${application.id}`}>
               View Details
             </Button>
+
             {application.status === "pending" && (
               <div className="flex gap-2">
                 {isWorker ? (
@@ -167,6 +167,7 @@ function ApplicationCard({
               {isWorker ? "Your application for this shift" : "Review worker application"}
             </DialogDescription>
           </DialogHeader>
+
           <div className="space-y-4">
             <div>
               <h4 className="font-medium mb-2">Shift Information</h4>
@@ -202,6 +203,7 @@ function ApplicationCard({
               </div>
             )}
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDetails(false)}>
               Close
@@ -240,18 +242,31 @@ export default function ApplicationsPage() {
         },
         body: JSON.stringify({ status }),
       });
+
+      const contentType = res.headers.get("content-type") || "";
+      const raw = await res.text();
       if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || "Failed to update application");
+        if (contentType.includes("application/json")) {
+          const error = JSON.parse(raw);
+          throw new Error(error.message || "Failed to update application");
+        }
+        throw new Error(`Failed to update application (${res.status})`);
       }
-      return res.json();
+
+      return contentType.includes("application/json") ? JSON.parse(raw) : raw;
     },
     onSuccess: (_, { status }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/applications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
+
       toast({
-        title: status === "accepted" ? "Application accepted" : status === "rejected" ? "Application rejected" : "Application withdrawn",
+        title:
+          status === "accepted"
+            ? "Application accepted"
+            : status === "rejected"
+            ? "Application rejected"
+            : "Application withdrawn",
       });
     },
     onError: (error: Error) => {

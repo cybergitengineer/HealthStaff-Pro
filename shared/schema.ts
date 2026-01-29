@@ -125,10 +125,14 @@ export const insertWorkerProfileSchema = createInsertSchema(workerProfiles).omit
   id: true,
 });
 
-export const insertShiftSchema = createInsertSchema(shifts).omit({
+export const insertShiftSchema = createInsertSchema(shifts, {
+  startTime: z.coerce.date(),
+  endTime: z.coerce.date(),
+}).omit({
   id: true,
   createdAt: true,
 });
+
 
 export const insertApplicationSchema = createInsertSchema(applications).omit({
   id: true,

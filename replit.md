@@ -102,7 +102,7 @@ For testing, the following accounts are pre-seeded:
 SMS notifications are enabled via Courier to keep workers informed about shifts and applications.
 
 ### Triggers
-- **New Shift Posted**: All verified workers receive SMS about new available shifts
+- **New Shift Posted**: All verified workers receive SMS about new available shifts (workers are independent contractors not bound to specific tenants, so they can apply to any facility's shifts)
 - **Application Accepted**: Worker receives SMS confirmation when their application is accepted
 - **Application Rejected**: Worker receives SMS notification when their application is not selected
 

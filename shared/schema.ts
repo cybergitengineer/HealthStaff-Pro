@@ -6,15 +6,27 @@ import { z } from "zod";
 // Enums
 export const tenantTypeEnum = pgEnum("tenant_type", ["LTC", "Homecare", "Clinic"]);
 export const tenantStatusEnum = pgEnum("tenant_status", ["pending", "approved", "suspended"]);
-export const userRoleEnum = pgEnum("user_role", ["SUPER_ADMIN", "FACILITY_ADMIN", "WORKER"]);
+export const userRoleEnum = pgEnum("user_role", ["SUPER_ADMIN", "TENANT_ADMIN", "FACILITY_ADMIN", "WORKER"]);
 export const userStatusEnum = pgEnum("user_status", ["pending", "active", "suspended"]);
 export const shiftStatusEnum = pgEnum("shift_status", ["open", "offered", "filled", "completed", "cancelled"]);
 export const applicationStatusEnum = pgEnum("application_status", ["pending", "accepted", "rejected", "withdrawn"]);
 export const payoutStatusEnum = pgEnum("payout_status", ["pending", "processing", "completed"]);
-export const licenseTypeEnum = pgEnum("license_type", ["RN", "LPN", "CNA", "HCA", "PSW"]);
 export const urgencyEnum = pgEnum("urgency", ["low", "normal", "high", "critical"]);
 
-// Tenant table
+// New enums for worker profiles and shifts
+export const ageGroupEnum = pgEnum("age_group", ["below_30", "30_to_50", "above_50"]);
+export const experienceLevelEnum = pgEnum("experience_level", ["beginner", "professional", "expert"]);
+export const professionEnum = pgEnum("profession", ["nurse", "care_worker", "med_tech"]);
+export const environmentTypeEnum = pgEnum("environment_type", ["care_home", "old_age_home", "one_on_one", "hospital"]);
+
+// Skills mapping by profession
+export const PROFESSION_SKILLS = {
+  nurse: ["ICU", "Wound Care", "IV Therapy", "ACLS", "Pediatric Care", "Emergency Care"],
+  care_worker: ["ADLs", "Patient Transfers", "Dementia Care", "Basic First Aid", "Mobility Assistance", "Nutrition Support"],
+  med_tech: ["Medication Dispensing", "Lab Sampling", "Pharmacy Software", "Vital Signs Monitoring", "Medical Records", "Equipment Maintenance"],
+} as const;
+
+// Tenant table (parent organization)
 export const tenants = pgTable("tenants", {
   id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
@@ -31,6 +43,18 @@ export const tenants = pgTable("tenants", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Facilities table (child of tenant)
+export const facilities = pgTable("facilities", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull().references(() => tenants.id),
+  name: text("name").notNull(),
+  address: text("address"),
+  phone: text("phone"),
+  environmentType: environmentTypeEnum("environment_type").notNull().default("care_home"),
+  status: userStatusEnum("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Users table
 export const users = pgTable("users", {
   id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
@@ -38,6 +62,7 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
   role: userRoleEnum("role").notNull().default("WORKER"),
   tenantId: varchar("tenant_id", { length: 36 }).references(() => tenants.id),
+  facilityId: varchar("facility_id", { length: 36 }).references(() => facilities.id),
   status: userStatusEnum("status").notNull().default("pending"),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
@@ -45,14 +70,17 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-// Worker Profiles table
+// Worker Profiles table with enhanced fields
 export const workerProfiles = pgTable("worker_profiles", {
   id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 36 }).notNull().unique().references(() => users.id),
-  licenseType: licenseTypeEnum("license_type").notNull(),
-  licenseNumber: text("license_number").notNull(),
-  licenseExpiry: timestamp("license_expiry").notNull(),
-  specialties: text("specialties").array().default(sql`ARRAY[]::text[]`),
+  profession: professionEnum("profession").notNull().default("care_worker"),
+  ageGroup: ageGroupEnum("age_group").notNull().default("30_to_50"),
+  experienceLevel: experienceLevelEnum("experience_level").notNull().default("beginner"),
+  skills: text("skills").array().default(sql`ARRAY[]::text[]`),
+  additionalCertifications: text("additional_certifications").array().default(sql`ARRAY[]::text[]`),
+  licenseNumber: text("license_number"),
+  licenseExpiry: timestamp("license_expiry"),
   availability: jsonb("availability").$type<{
     monday: boolean;
     tuesday: boolean;
@@ -70,13 +98,19 @@ export const workerProfiles = pgTable("worker_profiles", {
   bio: text("bio"),
 });
 
-// Shifts table
+// Shifts table with enhanced matching fields
 export const shifts = pgTable("shifts", {
   id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   tenantId: varchar("tenant_id", { length: 36 }).notNull().references(() => tenants.id),
+  facilityId: varchar("facility_id", { length: 36 }).references(() => facilities.id),
   title: text("title").notNull(),
   description: text("description"),
-  requiredLicense: licenseTypeEnum("required_license").notNull(),
+  requiredProfession: professionEnum("required_profession").notNull().default("care_worker"),
+  requiredAgeGroup: ageGroupEnum("required_age_group"),
+  requiredExperience: experienceLevelEnum("required_experience"),
+  requiredSkills: text("required_skills").array().default(sql`ARRAY[]::text[]`),
+  environmentType: environmentTypeEnum("environment_type").notNull().default("care_home"),
+  patientLoad: integer("patient_load").default(1),
   startTime: timestamp("start_time").notNull(),
   endTime: timestamp("end_time").notNull(),
   payRate: integer("pay_rate").notNull(),
@@ -116,6 +150,11 @@ export const insertTenantSchema = createInsertSchema(tenants).omit({
   createdAt: true,
 });
 
+export const insertFacilitySchema = createInsertSchema(facilities).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   createdAt: true,
@@ -132,7 +171,6 @@ export const insertShiftSchema = createInsertSchema(shifts, {
   id: true,
   createdAt: true,
 });
-
 
 export const insertApplicationSchema = createInsertSchema(applications).omit({
   id: true,
@@ -156,12 +194,33 @@ export const registerSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   phone: z.string().optional(),
-  role: z.enum(["FACILITY_ADMIN", "WORKER"]),
+  role: z.enum(["TENANT_ADMIN", "FACILITY_ADMIN", "WORKER"]),
+  tenantId: z.string().optional(),
+});
+
+// Worker registration schema with profile data
+export const workerRegisterSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+  firstName: z.string().min(1),
+  lastName: z.string().min(1),
+  phone: z.string().optional(),
+  profession: z.enum(["nurse", "care_worker", "med_tech"]),
+  ageGroup: z.enum(["below_30", "30_to_50", "above_50"]),
+  experienceLevel: z.enum(["beginner", "professional", "expert"]),
+  skills: z.array(z.string()).default([]),
+  additionalCertifications: z.array(z.string()).default([]),
+  licenseNumber: z.string().optional(),
+  licenseExpiry: z.coerce.date().optional(),
+  tenantId: z.string().optional(),
 });
 
 // Types
 export type Tenant = typeof tenants.$inferSelect;
 export type InsertTenant = z.infer<typeof insertTenantSchema>;
+
+export type Facility = typeof facilities.$inferSelect;
+export type InsertFacility = z.infer<typeof insertFacilitySchema>;
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -180,10 +239,12 @@ export type InsertAssignment = z.infer<typeof insertAssignmentSchema>;
 
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;
+export type WorkerRegisterInput = z.infer<typeof workerRegisterSchema>;
 
 // Extended types for frontend
 export type ShiftWithDetails = Shift & {
   tenant?: Tenant;
+  facility?: Facility;
   applicationsCount?: number;
 };
 
@@ -200,5 +261,10 @@ export type AssignmentWithDetails = Assignment & {
 
 export type UserWithProfile = User & {
   workerProfile?: WorkerProfile;
+  tenant?: Tenant;
+  facility?: Facility;
+};
+
+export type FacilityWithDetails = Facility & {
   tenant?: Tenant;
 };

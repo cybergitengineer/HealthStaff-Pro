@@ -7,8 +7,11 @@ import {
   shifts,
   applications,
   assignments,
+  facilities,
   type Tenant,
   type InsertTenant,
+  type Facility,
+  type InsertFacility,
   type User,
   type InsertUser,
   type WorkerProfile,
@@ -23,6 +26,7 @@ import {
   type ShiftWithDetails,
   type ApplicationWithDetails,
   type AssignmentWithDetails,
+  type FacilityWithDetails,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -31,6 +35,12 @@ export interface IStorage {
   getTenant(id: string): Promise<Tenant | undefined>;
   createTenant(tenant: InsertTenant): Promise<Tenant>;
   updateTenant(id: string, data: Partial<InsertTenant>): Promise<Tenant | undefined>;
+
+  // Facilities
+  getFacilities(tenantId?: string): Promise<FacilityWithDetails[]>;
+  getFacility(id: string): Promise<Facility | undefined>;
+  createFacility(facility: InsertFacility): Promise<Facility>;
+  updateFacility(id: string, data: Partial<InsertFacility>): Promise<Facility | undefined>;
 
   // Users
   getUser(id: string): Promise<User | undefined>;
@@ -46,8 +56,9 @@ export interface IStorage {
   updateWorkerProfile(userId: string, data: Partial<InsertWorkerProfile>): Promise<WorkerProfile | undefined>;
 
   // Shifts
-  getShifts(tenantId?: string): Promise<ShiftWithDetails[]>;
+  getShifts(tenantId?: string, facilityId?: string): Promise<ShiftWithDetails[]>;
   getShift(id: string): Promise<Shift | undefined>;
+  getMatchingShiftsForWorker(workerId: string): Promise<ShiftWithDetails[]>;
   createShift(shift: InsertShift): Promise<Shift>;
   updateShift(id: string, data: Partial<InsertShift>): Promise<Shift | undefined>;
 
@@ -89,6 +100,35 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  // Facilities
+  async getFacilities(tenantId?: string): Promise<FacilityWithDetails[]> {
+    const facilitiesList = tenantId
+      ? await db.select().from(facilities).where(eq(facilities.tenantId, tenantId)).orderBy(desc(facilities.createdAt))
+      : await db.select().from(facilities).orderBy(desc(facilities.createdAt));
+
+    const result: FacilityWithDetails[] = [];
+    for (const facility of facilitiesList) {
+      const [tenant] = await db.select().from(tenants).where(eq(tenants.id, facility.tenantId));
+      result.push({ ...facility, tenant });
+    }
+    return result;
+  }
+
+  async getFacility(id: string): Promise<Facility | undefined> {
+    const [facility] = await db.select().from(facilities).where(eq(facilities.id, id));
+    return facility;
+  }
+
+  async createFacility(facility: InsertFacility): Promise<Facility> {
+    const [created] = await db.insert(facilities).values(facility).returning();
+    return created;
+  }
+
+  async updateFacility(id: string, data: Partial<InsertFacility>): Promise<Facility | undefined> {
+    const [updated] = await db.update(facilities).set(data).where(eq(facilities.id, id)).returning();
+    return updated;
+  }
+
   // Users
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -108,11 +148,15 @@ export class DatabaseStorage implements IStorage {
     const [tenant] = user.tenantId
       ? await db.select().from(tenants).where(eq(tenants.id, user.tenantId))
       : [undefined];
+    const [facility] = user.facilityId
+      ? await db.select().from(facilities).where(eq(facilities.id, user.facilityId))
+      : [undefined];
 
     return {
       ...user,
       workerProfile: profile,
       tenant,
+      facility,
     };
   }
 
@@ -162,16 +206,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Shifts
-  async getShifts(tenantId?: string): Promise<ShiftWithDetails[]> {
-    const query = tenantId
-      ? db.select().from(shifts).where(eq(shifts.tenantId, tenantId)).orderBy(desc(shifts.createdAt))
-      : db.select().from(shifts).orderBy(desc(shifts.createdAt));
+  async getShifts(tenantId?: string, facilityId?: string): Promise<ShiftWithDetails[]> {
+    let shiftList;
+    if (facilityId) {
+      shiftList = await db.select().from(shifts).where(eq(shifts.facilityId, facilityId)).orderBy(desc(shifts.createdAt));
+    } else if (tenantId) {
+      shiftList = await db.select().from(shifts).where(eq(shifts.tenantId, tenantId)).orderBy(desc(shifts.createdAt));
+    } else {
+      shiftList = await db.select().from(shifts).orderBy(desc(shifts.createdAt));
+    }
 
-    const shiftList = await query;
     const result: ShiftWithDetails[] = [];
 
     for (const shift of shiftList) {
       const [tenant] = await db.select().from(tenants).where(eq(tenants.id, shift.tenantId));
+      const [facility] = shift.facilityId
+        ? await db.select().from(facilities).where(eq(facilities.id, shift.facilityId))
+        : [undefined];
       const appCount = await db
         .select({ count: sql<number>`count(*)` })
         .from(applications)
@@ -180,6 +231,48 @@ export class DatabaseStorage implements IStorage {
       result.push({
         ...shift,
         tenant,
+        facility,
+        applicationsCount: Number(appCount[0]?.count ?? 0),
+      });
+    }
+    return result;
+  }
+
+  async getMatchingShiftsForWorker(workerId: string): Promise<ShiftWithDetails[]> {
+    const [profile] = await db.select().from(workerProfiles).where(eq(workerProfiles.userId, workerId));
+    if (!profile) return [];
+
+    const openShifts = await db.select().from(shifts).where(eq(shifts.status, "open")).orderBy(desc(shifts.createdAt));
+    const result: ShiftWithDetails[] = [];
+
+    for (const shift of openShifts) {
+      if (shift.requiredProfession !== profile.profession) continue;
+      if (shift.requiredAgeGroup && shift.requiredAgeGroup !== profile.ageGroup) continue;
+      if (shift.requiredExperience) {
+        const expLevels = ["beginner", "professional", "expert"];
+        const requiredIdx = expLevels.indexOf(shift.requiredExperience);
+        const workerIdx = expLevels.indexOf(profile.experienceLevel);
+        if (workerIdx < requiredIdx) continue;
+      }
+      if (shift.requiredSkills && shift.requiredSkills.length > 0) {
+        const workerSkills = profile.skills || [];
+        const hasAllSkills = shift.requiredSkills.every(skill => workerSkills.includes(skill));
+        if (!hasAllSkills) continue;
+      }
+
+      const [tenant] = await db.select().from(tenants).where(eq(tenants.id, shift.tenantId));
+      const [facility] = shift.facilityId
+        ? await db.select().from(facilities).where(eq(facilities.id, shift.facilityId))
+        : [undefined];
+      const appCount = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(applications)
+        .where(eq(applications.shiftId, shift.id));
+
+      result.push({
+        ...shift,
+        tenant,
+        facility,
         applicationsCount: Number(appCount[0]?.count ?? 0),
       });
     }

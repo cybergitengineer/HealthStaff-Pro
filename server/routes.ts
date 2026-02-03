@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { loginSchema, registerSchema, insertShiftSchema, insertTenantSchema, insertApplicationSchema } from "@shared/schema";
+import { loginSchema, registerSchema, workerRegisterSchema, insertShiftSchema, insertTenantSchema, insertApplicationSchema, insertFacilitySchema, PROFESSION_SKILLS } from "@shared/schema";
 import { z } from "zod";
 import { notifyWorkerNewShift, notifyApplicationAccepted, notifyApplicationRejected } from "./notifications";
 import { format } from "date-fns";
@@ -19,6 +19,7 @@ interface AuthRequest extends Request {
     email: string;
     role: string;
     tenantId: string | null;
+    facilityId: string | null;
   };
 }
 
@@ -37,6 +38,7 @@ function authenticateToken(req: AuthRequest, res: Response, next: NextFunction) 
       email: string;
       role: string;
       tenantId: string | null;
+      facilityId: string | null;
     };
     req.user = decoded;
     next();
@@ -82,7 +84,7 @@ export async function registerRoutes(
       }
 
       const token = jwt.sign(
-        { id: user.id, email: user.email, role: user.role, tenantId: user.tenantId },
+        { id: user.id, email: user.email, role: user.role, tenantId: user.tenantId, facilityId: user.facilityId },
         JWT_SECRET,
         { expiresIn: "24h" }
       );
@@ -119,19 +121,20 @@ export async function registerRoutes(
         tenantId: null,
       });
 
-      // If worker, create profile
+      // If worker, create profile with defaults (will be updated in registration wizard)
       if (data.role === "WORKER") {
         await storage.createWorkerProfile({
           userId: user.id,
-          licenseType: "RN",
-          licenseNumber: "",
-          licenseExpiry: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+          profession: "care_worker",
+          ageGroup: "30_to_50",
+          experienceLevel: "beginner",
+          skills: [],
           verified: false,
         });
       }
 
       const token = jwt.sign(
-        { id: user.id, email: user.email, role: user.role, tenantId: user.tenantId },
+        { id: user.id, email: user.email, role: user.role, tenantId: user.tenantId, facilityId: user.facilityId },
         JWT_SECRET,
         { expiresIn: "24h" }
       );
@@ -207,7 +210,7 @@ export async function registerRoutes(
 
   app.patch("/api/tenants/:id", authenticateToken, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       const tenant = await storage.updateTenant(id, req.body);
       if (!tenant) {
         return res.status(404).json({ message: "Tenant not found" });
@@ -215,6 +218,108 @@ export async function registerRoutes(
       res.json(tenant);
     } catch (error) {
       console.error("Update tenant error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Facilities routes
+  app.get("/api/facilities", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      let facilities: Awaited<ReturnType<typeof storage.getFacilities>> = [];
+      if (req.user.role === "SUPER_ADMIN") {
+        facilities = await storage.getFacilities();
+      } else if (req.user.role === "TENANT_ADMIN" && req.user.tenantId) {
+        facilities = await storage.getFacilities(req.user.tenantId);
+      } else if (req.user.role === "FACILITY_ADMIN" && req.user.facilityId) {
+        const facility = await storage.getFacility(req.user.facilityId);
+        facilities = facility ? [{ ...facility }] : [];
+      }
+      res.json(facilities);
+    } catch (error) {
+      console.error("Get facilities error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/facilities", authenticateToken, requireRole("SUPER_ADMIN", "TENANT_ADMIN"), async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const data = insertFacilitySchema.parse(req.body);
+
+      // For TENANT_ADMIN, ensure they can only create facilities for their tenant
+      if (req.user.role === "TENANT_ADMIN") {
+        if (!req.user.tenantId) {
+          return res.status(403).json({ message: "Tenant admin must be associated with a tenant" });
+        }
+        if (data.tenantId !== req.user.tenantId) {
+          return res.status(403).json({ message: "Cannot create facility for another tenant" });
+        }
+      }
+
+      // Verify tenant exists and is approved
+      const tenant = await storage.getTenant(data.tenantId);
+      if (!tenant) {
+        return res.status(400).json({ message: "Tenant not found" });
+      }
+      if (tenant.status !== "approved") {
+        return res.status(400).json({ message: "Cannot create facility for unapproved tenant" });
+      }
+
+      const facility = await storage.createFacility({
+        ...data,
+        status: "pending",
+      });
+      res.json(facility);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid input", errors: error.errors });
+      }
+      console.error("Create facility error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/facilities/:id", authenticateToken, requireRole("SUPER_ADMIN", "TENANT_ADMIN"), async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const id = req.params.id as string;
+      const facility = await storage.getFacility(id);
+      
+      if (!facility) {
+        return res.status(404).json({ message: "Facility not found" });
+      }
+
+      // TENANT_ADMIN can only update their own facilities
+      if (req.user.role === "TENANT_ADMIN" && facility.tenantId !== req.user.tenantId) {
+        return res.status(403).json({ message: "Cannot update facility from another tenant" });
+      }
+
+      const updated = await storage.updateFacility(id, req.body);
+      res.json(updated);
+    } catch (error) {
+      console.error("Update facility error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Get skills for a profession
+  app.get("/api/skills/:profession", async (req: Request, res: Response) => {
+    try {
+      const { profession } = req.params;
+      const skills = PROFESSION_SKILLS[profession as keyof typeof PROFESSION_SKILLS] || [];
+      res.json(skills);
+    } catch (error) {
+      console.error("Get skills error:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -233,7 +338,7 @@ export async function registerRoutes(
   // FIXED BUG: Added provision to create a worker manually
   app.post("/api/workers", authenticateToken, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
     try {
-      const { email, firstName, lastName, phone, licenseType } = req.body;
+      const { email, firstName, lastName, phone, profession, ageGroup, experienceLevel, skills, tenantId } = req.body;
 
       const existingUser = await storage.getUserByEmail(email);
       if (existingUser) {
@@ -250,14 +355,15 @@ export async function registerRoutes(
         phone: phone || "",
         role: "WORKER",
         status: "active",
-        tenantId: null,
+        tenantId: tenantId || null,
       });
 
       await storage.createWorkerProfile({
         userId: user.id,
-        licenseType: licenseType || "RN",
-        licenseNumber: "ADMIN-CREATED",
-        licenseExpiry: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        profession: profession || "care_worker",
+        ageGroup: ageGroup || "30_to_50",
+        experienceLevel: experienceLevel || "beginner",
+        skills: skills || [],
         verified: true,
       });
 
@@ -271,7 +377,7 @@ export async function registerRoutes(
 
   app.post("/api/workers/:id/verify", authenticateToken, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       const profile = await storage.updateWorkerProfile(id, { verified: true });
       await storage.updateUser(id, { status: "active" });
       if (!profile) {
@@ -286,7 +392,7 @@ export async function registerRoutes(
 
   app.post("/api/workers/:id/suspend", authenticateToken, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       // FIX: Changed to update status only
       await storage.updateUser(id, { status: "suspended" });
       res.json({ message: "Worker suspended" });
@@ -299,7 +405,7 @@ export async function registerRoutes(
   // NEW: Admin Provision to Create Workers Manually
   app.post("/api/workers", authenticateToken, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
     try {
-      const { email, firstName, lastName, phone, licenseType } = req.body;
+      const { email, firstName, lastName, phone, profession, ageGroup, experienceLevel, skills } = req.body;
 
       const existingUser = await storage.getUserByEmail(email);
       if (existingUser) {
@@ -323,9 +429,10 @@ export async function registerRoutes(
       // Automatically create the professional profile
       await storage.createWorkerProfile({
         userId: user.id,
-        licenseType: licenseType || "RN",
-        licenseNumber: "PENDING",
-        licenseExpiry: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        profession: profession || "care_worker",
+        ageGroup: ageGroup || "30_to_50",
+        experienceLevel: experienceLevel || "beginner",
+        skills: skills || [],
         verified: true, // Manual admin creation usually bypasses verification
       });
 
@@ -337,33 +444,6 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/workers/:id/verify", authenticateToken, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
-    try {
-      const { id } = req.params;
-      const profile = await storage.updateWorkerProfile(id, { verified: true });
-      await storage.updateUser(id, { status: "active" });
-      if (!profile) {
-        return res.status(404).json({ message: "Worker profile not found" });
-      }
-      res.json({ message: "Worker verified successfully" });
-    } catch (error) {
-      console.error("Verify worker error:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
-  app.post("/api/workers/:id/suspend", authenticateToken, requireRole("SUPER_ADMIN"), async (req: AuthRequest, res: Response) => {
-    try {
-      const { id } = req.params;
-      // This correctly updates the status to 'suspended' without deleting the record.
-      await storage.updateUser(id, { status: "suspended" });
-      res.json({ message: "Worker suspended" });
-    } catch (error) {
-      console.error("Suspend worker error:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
-
   // Shifts routes
   app.get("/api/shifts", authenticateToken, async (req: AuthRequest, res: Response) => {
     try {
@@ -371,17 +451,20 @@ export async function registerRoutes(
         return res.status(401).json({ message: "Not authenticated" });
       }
 
-      let shifts;
+      let shifts: Awaited<ReturnType<typeof storage.getShifts>> = [];
       if (req.user.role === "SUPER_ADMIN") {
         shifts = await storage.getShifts();
-      } else if (req.user.role === "FACILITY_ADMIN" && req.user.tenantId) {
+      } else if (req.user.role === "TENANT_ADMIN" && req.user.tenantId) {
         shifts = await storage.getShifts(req.user.tenantId);
+      } else if (req.user.role === "FACILITY_ADMIN") {
+        if (req.user.facilityId) {
+          shifts = await storage.getShifts(undefined, req.user.facilityId);
+        } else if (req.user.tenantId) {
+          shifts = await storage.getShifts(req.user.tenantId);
+        }
       } else if (req.user.role === "WORKER") {
-        // Workers see all open shifts they're eligible for
-        shifts = await storage.getShifts();
-        shifts = shifts.filter((s) => s.status === "open" || s.status === "offered");
-      } else {
-        shifts = [];
+        // Workers only see open shifts matching their profile
+        shifts = await storage.getMatchingShiftsForWorker(req.user.id);
       }
       res.json(shifts);
     } catch (error) {
@@ -425,8 +508,8 @@ export async function registerRoutes(
               {
                 title: shift.title,
                 facility: tenant?.name || "Healthcare Facility",
-                date: format(new Date(shift.date), "MMM d, yyyy"),
-                rate: String(shift.hourlyRate),
+                date: format(new Date(shift.startTime), "MMM d, yyyy"),
+                rate: String(shift.payRate),
               }
             ).catch(err => console.error("[SMS] Error notifying worker:", err));
           }
@@ -452,7 +535,7 @@ export async function registerRoutes(
         return res.status(401).json({ message: "Not authenticated" });
       }
 
-      const { id } = req.params;
+      const id = req.params.id as string;
       const shift = await storage.getShift(id);
 
       if (!shift) {
@@ -544,7 +627,7 @@ export async function registerRoutes(
         return res.status(401).json({ message: "Not authenticated" });
       }
 
-      const { id } = req.params;
+      const id = req.params.id as string;
       const { status } = req.body;
       const application = await storage.getApplication(id);
 
@@ -634,7 +717,7 @@ export async function registerRoutes(
               {
                 title: shift.title,
                 facility: tenant?.name || "Healthcare Facility",
-                date: format(new Date(shift.date), "MMM d, yyyy"),
+                date: format(new Date(shift.startTime), "MMM d, yyyy"),
               }
             ).catch(err => console.error("[SMS] Error notifying accepted worker:", err));
           }
@@ -701,7 +784,7 @@ export async function registerRoutes(
         return res.status(401).json({ message: "Not authenticated" });
       }
 
-      const { id } = req.params;
+      const id = req.params.id as string;
       const assignment = await storage.getAssignment(id);
 
       if (!assignment) {
@@ -728,7 +811,7 @@ export async function registerRoutes(
         return res.status(401).json({ message: "Not authenticated" });
       }
 
-      const { id } = req.params;
+      const id = req.params.id as string;
       const assignment = await storage.getAssignment(id);
 
       if (!assignment) {
@@ -758,7 +841,7 @@ export async function registerRoutes(
         return res.status(401).json({ message: "Not authenticated" });
       }
 
-      const { id } = req.params;
+      const id = req.params.id as string;
       const assignment = await storage.getAssignment(id);
 
       if (!assignment) {
@@ -797,7 +880,7 @@ export async function registerRoutes(
         return res.status(401).json({ message: "Not authenticated" });
       }
 
-      const { firstName, lastName, phone, licenseType, licenseNumber, licenseExpiry, bio, availability } = req.body;
+      const { firstName, lastName, phone, profession, ageGroup, experienceLevel, skills, additionalCertifications, licenseNumber, licenseExpiry, bio, availability } = req.body;
 
       // Update user
       await storage.updateUser(req.user.id, { firstName, lastName, phone });
@@ -807,7 +890,11 @@ export async function registerRoutes(
         const profile = await storage.getWorkerProfile(req.user.id);
         if (profile) {
           await storage.updateWorkerProfile(req.user.id, {
-            licenseType,
+            profession,
+            ageGroup,
+            experienceLevel,
+            skills,
+            additionalCertifications,
             licenseNumber,
             licenseExpiry: licenseExpiry ? new Date(licenseExpiry) : undefined,
             bio,

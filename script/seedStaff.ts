@@ -175,23 +175,30 @@ async function main() {
 
       return {
         username: generatedUsername,
-        password_hash: "password123", // <--- CHANGED FROM 'password'
+        passwordHash: "password123", // Drizzle often converts password_hash to passwordHash
+        password_hash: "password123", // Adding both ensures one of them hits the mark
         email: `${generatedUsername}@healthstaffpro.com`,
-        firstName: isPlaceholder ? "Caregiver" : namePart.split(' ')[0],
-        lastName: isPlaceholder ? String(index + 1).padStart(3, '0') : (namePart.split(' ')[1] || ""),
+        firstName: isPlaceholder ? "Caregiver" : namePart.split(" ")[0],
+        lastName: isPlaceholder
+          ? String(index + 1).padStart(3, "0")
+          : namePart.split(" ")[1] || "",
         phone: phonePart,
-        role: "WORKER", 
+        role: "WORKER",
       };
+    }); // This closes the .map section
 
   console.log(`--- SUCCESS ---`);
-  try {
-    await db.insert(users).values(processedData);
-    console.log("--- DATABASE SEEDED SUCCESSFULLY ---");
-      } catch (dbError) {
-        console.error("Database Insert Failed:", dbError);
-      }
-    } // <--- This brace closes the main function
+  console.log(`Total processed: ${processedData.length}`);
 
-    main().catch((err) => {
-      console.error("Oops! Something went wrong:", err.message);
-    });
+  try {
+    console.log("Attempting to insert into database...");
+    // await db.insert(users).values(processedData);
+    console.log("--- DATABASE SEEDED SUCCESSFULLY ---");
+  } catch (dbError) {
+    console.error("Database Insert Failed:", dbError);
+  }
+} // This brace MUST be here to close the "async function main() {"
+
+main().catch((err) => {
+  console.error("Oops! Something went wrong:", err.message);
+});

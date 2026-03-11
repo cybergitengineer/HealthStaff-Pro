@@ -1,4 +1,19 @@
-Unknown	+1 (203) 435-8821
+import { db } from "../server/db";
+import { users } from "@shared/schema";
+
+// 1. THE RAW DATA (Keep your pasted list here exactly as it is)
+const rawTextData = `
+  Amos +1 (682) 37...
+  Anne Tsitsi +1 (402) 61...
+  Unknown +1 (203) 435-8821
+  Unknown +1 (207) 651-2022
+  Unknown +1 (214) 280-5813
+  Unknown +1 (214) 434-8834
+  Unknown +1 (214) 436-6107
+  Unknown +1 (214) 447-6786
+  Unknown +1 (214) 846-9307
+  Wisdom +1 (469) 39...
+  Unknown	+1 (203) 435-8821
 Unknown	+1 (207) 651-2022
 Unknown	+1 (214) 280-5813
 Unknown	+1 (214) 434-8834
@@ -133,3 +148,50 @@ TOMJAZZY BABA HOBHO	+1 (469) 615-5141
 Uloma	+1 (806) 654-7183
 Wildy	+1 (907) 987-9986
 Wisdom	+1 (469) 395-7071
+`; // <--- Paste EVERYTHING from your image/list inside these backticks
+
+// 2. THE LOGIC (This is now protected from formatting errors)
+async function main() {
+  console.log("Reading contacts...");
+
+  const lines = rawTextData.trim().split("\n");
+
+  // Create the sorted list
+  const processedData = lines
+    .filter((line) => line.trim().length > 5) // Skip empty lines
+    .sort((a, b) => a.localeCompare(b)) // ALPHABETICAL SORT
+    .map((line, index) => {
+      const namePart = line.split("+")[0].trim();
+      const phonePart = line.includes("+")
+        ? "+" + line.split("+")[1].trim()
+        : "No Phone";
+
+      const isPlaceholder =
+        namePart.toLowerCase().includes("unknown") || namePart === "Name";
+
+      // Define the username first so we can use it in both 'username' and 'email' fields
+      const uniqueId = Math.random().toString(36).slice(2, 7);
+      const generatedUsername = `staff_${uniqueId}_${index}`;
+
+      return {
+        username: generatedUsername,
+        password_hash: "password123", // <--- CHANGED FROM 'password'
+        email: `${generatedUsername}@healthstaffpro.com`,
+        firstName: isPlaceholder ? "Caregiver" : namePart.split(' ')[0],
+        lastName: isPlaceholder ? String(index + 1).padStart(3, '0') : (namePart.split(' ')[1] || ""),
+        phone: phonePart,
+        role: "WORKER", 
+      };
+
+  console.log(`--- SUCCESS ---`);
+  try {
+    await db.insert(users).values(processedData);
+    console.log("--- DATABASE SEEDED SUCCESSFULLY ---");
+      } catch (dbError) {
+        console.error("Database Insert Failed:", dbError);
+      }
+    } // <--- This brace closes the main function
+
+    main().catch((err) => {
+      console.error("Oops! Something went wrong:", err.message);
+    });

@@ -3,6 +3,9 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { ensureAdminExists } from "./ensureAdmin";
+import { db } from "./db";
+import { users } from "../shared/schema";
+import { eq } from "drizzle-orm";
 
 const app = express();
 const httpServer = createServer(app);
@@ -60,7 +63,45 @@ app.use((req, res, next) => {
   next();
 });
 
+// DATABASE REPAIR FUNCTION
+async function runRepair() {
+  try {
+    log(">>> STARTING DATABASE REPAIR...");
+    const workers = await db
+      .select()
+      .from(users)
+      .where(eq(users.role, "WORKER"));
+
+    for (const w of workers) {
+      let updates: any = {};
+
+      // 1. Fix Last Name (Clear out accidental +1)
+      if (w.lastName === "+1") {
+        updates.lastName = "";
+      }
+
+      // 2. Fix Phone Number (Add country prefixes if missing)
+      if (w.phone && !w.phone.startsWith("+")) {
+        let prefix = "+1";
+        if (w.firstName?.includes("Anesu")) prefix = "+263";
+        if (w.firstName?.includes("Queen")) prefix = "+250";
+        updates.phone = `${prefix}${w.phone}`.replace(/[\s-()]/g, "");
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await db.update(users).set(updates).where(eq(users.id, w.id));
+      }
+    }
+    log(`>>> REPAIR COMPLETE: Checked ${workers.length} users.`);
+  } catch (err) {
+    console.error("Repair failed:", err);
+  }
+}
+
 (async () => {
+  // Run data cleanup on start
+  await runRepair();
+
   await ensureAdminExists();
   await registerRoutes(httpServer, app);
 
@@ -77,9 +118,6 @@ app.use((req, res, next) => {
     return res.status(status).json({ message });
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
   } else {
@@ -87,10 +125,6 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(
     {

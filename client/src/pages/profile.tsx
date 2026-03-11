@@ -47,7 +47,12 @@ export default function ProfilePage() {
   const [formData, setFormData] = useState({
     firstName: user?.firstName ?? "",
     lastName: user?.lastName ?? "",
-    phone: (user?.phone ?? "").replace(/[^\d]/g, ""),
+    phone: (() => {
+      const raw = (user?.phone ?? "").replace(/[^\d+]/g, "");
+      if (raw.startsWith("+1")) return raw.slice(2);
+      if (raw.startsWith("1") && raw.length > 10) return raw.slice(1);
+      return raw.replace(/^\+/, "");
+    })(),
     countryCode: "",
     // (as any) clears the red property error in your diagnostics
     licenseType: (user?.workerProfile as any)?.licenseType ?? "RN",

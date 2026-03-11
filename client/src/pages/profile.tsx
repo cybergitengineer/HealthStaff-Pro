@@ -45,12 +45,15 @@ export default function ProfilePage() {
   const { toast } = useToast();
 
   const cleanPhone = (user?.phone ?? "").replace(/[^\d+]/g, "");
-  const digitsOnly = cleanPhone.replace(/\D/g, "");
-  const hasCountryCode = cleanPhone.startsWith("+") && digitsOnly.length > 10;
-  const displayPhone = hasCountryCode ? digitsOnly.slice(-10) : digitsOnly;
-  const displayCode = hasCountryCode
-    ? "+" + digitsOnly.slice(0, digitsOnly.length - 10)
-    : "";
+  let displayPhone = cleanPhone;
+  let displayCode = "";
+  const phoneMatch = cleanPhone.match(/^(\+\d{1,3})(\d+)$/);
+  if (phoneMatch) {
+    displayCode = phoneMatch[1];
+    displayPhone = phoneMatch[2];
+  } else {
+    displayPhone = cleanPhone.replace(/^\+/, "");
+  }
 
   const [formData, setFormData] = useState({
     firstName: user?.firstName ?? "",

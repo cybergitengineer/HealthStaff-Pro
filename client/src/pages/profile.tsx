@@ -45,10 +45,11 @@ export default function ProfilePage() {
   const { toast } = useToast();
 
   const cleanPhone = (user?.phone ?? "").replace(/[^\d+]/g, "");
-  const hasPlus = cleanPhone.startsWith("+");
-  const displayPhone = hasPlus ? cleanPhone.slice(-10) : cleanPhone;
-  const displayCode = hasPlus
-    ? cleanPhone.slice(0, cleanPhone.length - 10)
+  const digitsOnly = cleanPhone.replace(/\D/g, "");
+  const hasCountryCode = cleanPhone.startsWith("+") && digitsOnly.length > 10;
+  const displayPhone = hasCountryCode ? digitsOnly.slice(-10) : digitsOnly;
+  const displayCode = hasCountryCode
+    ? "+" + digitsOnly.slice(0, digitsOnly.length - 10)
     : "";
 
   const [formData, setFormData] = useState({

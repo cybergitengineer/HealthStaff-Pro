@@ -53,7 +53,7 @@ export default function ProfilePage() {
       if (raw.startsWith("1") && raw.length > 10) return raw.slice(1);
       return raw.replace(/^\+/, "");
     })(),
-    countryCode: "",
+    countryCode: "+",
     // (as any) clears the red property error in your diagnostics
     licenseType: (user?.workerProfile as any)?.licenseType ?? "RN",
     licenseNumber: (user?.workerProfile as any)?.licenseNumber ?? "",

@@ -44,25 +44,11 @@ export default function ProfilePage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const cleanPhone = (user?.phone ?? "").replace(/[^\d+]/g, "");
-  let displayPhone = cleanPhone.replace(/^\+/, "");
-  let displayCode = "";
-  if (cleanPhone.startsWith("+1") && cleanPhone.length > 2) {
-    displayCode = "+1";
-    displayPhone = cleanPhone.slice(2);
-  } else if (cleanPhone.startsWith("+")) {
-    const match = cleanPhone.match(/^(\+\d{1,3})(\d{7,})$/);
-    if (match) {
-      displayCode = match[1];
-      displayPhone = match[2];
-    }
-  }
-
   const [formData, setFormData] = useState({
     firstName: user?.firstName ?? "",
     lastName: user?.lastName ?? "",
-    phone: displayPhone,
-    countryCode: displayCode,
+    phone: (user?.phone ?? "").replace(/[^\d]/g, ""),
+    countryCode: "",
     // (as any) clears the red property error in your diagnostics
     licenseType: (user?.workerProfile as any)?.licenseType ?? "RN",
     licenseNumber: (user?.workerProfile as any)?.licenseNumber ?? "",
